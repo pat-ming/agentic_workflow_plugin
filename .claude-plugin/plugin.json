@@ -1,0 +1,10 @@
+{
+    "name": "agentic-workflow-plugin",
+    "displayName": "Personal Agentic Workflow Plugin",
+    "decription": "An agentic workflow meant to mimic my own development style for personal optimization. Prompts are built from top to bottom autonomously.",
+    "version": "1.0.0",
+    "author": {
+        "name": "Patrick Ming",
+        "email": "mingp@wustl.edu"
+    }
+}

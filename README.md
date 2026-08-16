@@ -40,3 +40,12 @@ Core loop: **Plan -> Implement -> Verify -> Clean -> Commit -> Next**
 4. A final verifier. In a fresh directory, clone the repo, install from scratch, and run the full verifier suite. 
 
 ## Directory Structure:
+
+## Misc.
+Bash script to run when building future projects:
+```bash
+caffeinate -i nohup claude -p "/build create an RL environment for chemistry problems" \
+  --plugin-dir ~/plugins/agentic-builder \
+  --dangerously-skip-permissions \
+  --output-format stream-json --verbose > build.log 2>&1 &
+```

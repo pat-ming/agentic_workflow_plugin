@@ -33,7 +33,7 @@ Firstly, before anything, read the README.md in this plugin repository. It conta
  
 1. Analyze the request. Determine every component that must exist and the dependency order between them: what must be built before what. This ordering is your core deliverable — own it.
 2. Write `PLAN.md`: ordered phases, what each phase delivers, and a status field per phase using exactly one of `Pending / In-progress / Verified / Failed`.
-3. Write ALL verifiers now, before any implementation exists, into `verifiers/` — one per phase (or per sub-phase where warranted). Each verifier is an independent, machine-checkable script or terminal check that exits 0 on pass and non-zero on fail (RLVR-style). Name them so a phase maps to its verifier obviously (e.g. `verifiers/phase_1.sh`).
+3. Write ALL verifiers now for each phase into the `verifiers/` directory before any implementation. For each phase, first *decide what it means* for that phase to be deemed a success. (e.g. "the env exposes `reset()` and `step()` returning a 5-tuple", "`pytest tests/test_reward.py` passes", etc.). Then invoke the `verifiers_builder` agent. To it, pass the criteria plus the target path (for example, `verifiers/phase_<N>.sh`). It should return a machine-checkable script that exits 0 only when your criteria are met. You define the stadnard; the agent only encodes it. Review each returned verifier to ensure it actually tests what you want it to.
 4. Write `.gitignore` appropriate to the stack you are about to build.
 5. Write `CLAUDE.md` with the project conventions every worker must follow: the general understanding of the project at hand, the location and meaning of `PLAN.md`, the verifier-sanctity rule (verifiers are frozen and define correctness), the retry policy, and any stack-specific conventions you have decided on.
 6. Write `.claude/settings.json` into the target repo so that EVERY session run here — including worker sessions — enforces the guardrails. Register:
@@ -58,7 +58,7 @@ For each phase in `PLAN.md`, in order:
    Only create or modify files this phase needs. Do not touch verifiers/." \
      --dangerously-skip-permissions --add-dir .
    ```
-The worker's PostToolUse hook auto-runs this phase's verifier after each edit, so it self-corrects in-context.
+   The worker's PostToolUse hook auto-runs this phase's verifier after each edit, so it self-corrects in-context.
 3. Verify. The phase is complete ONLY when its own verifier passes AND all previously-passing verifiers still pass (run the full suite so far, to catch regressions where new work broke old systems).
 4. If the phase succeeds, write a markdown file which contains all major results from the phase in the directory `results/`. Each markdown should be aptly named, such as "`results/phase1_results.md`". In each markdown, include: 
     - The necessary context: what is going in this phase. 
@@ -67,6 +67,7 @@ The worker's PostToolUse hook auto-runs this phase's verifier after each edit, s
     - The motivations (implementation-wise): why did we implement it the way we did? How are we sure it works?
     - The results: what did we get out of this phase?
 5. If the phase fails (i.e., the verifier returns a non-zero output), retry the worker with the verifier output fed back in, up to 3 attempts total. If all 3 are exhausted, write `FAILURE_phase_<N>.md` capturing what failed, what was tried, and the verifier output. Reset the working tree to the last good commit (`git reset --hard HEAD` / `git checkout .`), mark the phase `Failed` in `PLAN.md`, and stop the loop — do not proceed past a failed dependency.
+6. Clean up. With the context tuple (phase just implemented, [target paths]), invoke `repo_scan_cleaner`. This subagent will return to you a list of proposed files to delete with a reason why, as well as a list of paths to add to the `.gitignore` and an explanation. Make judgments on which proposals to pass, and then make the necessary changes (deletion of files or additions to `.gitignore`).
 6. Clean up. Launch a read-heavy cleanup subagent (isolated context) to scan the changes since the last commit and propose dead or orphaned files for deletion. Delete what it proposes, then rerun the full verifier suite. If anything breaks, restore the pre-cleanup state (`git checkout` / `git reset --hard`).
 7. Commit — exactly one commit per completed phase — and mark the phase `Verified` in `PLAN.md`. Push if a remote exists.
 8. Re-read `PLAN.md` to refresh your context. If anything you learned this phase invalidates the plan, exercise judgment and edit `PLAN.md` — this is yours to do, not a worker's. Example: the plan assumed CUDA/vLLM but this machine is a Mac with no CUDA, so revise the approach and adjust downstream phases. Record any material result or finding a worker surfaced into a `NOTES.md` (or `results/phase_<N>.md`) so finalization has real material to draw on. (Make sure you read the markdown produced in step 4 of this phase to refresh yourself. If you see any changes worth making, make them.)

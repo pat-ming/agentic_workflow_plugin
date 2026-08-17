@@ -26,6 +26,7 @@ Firstly, before anything, read the README.md in this plugin repository. It conta
 * Verifiers are the contract and are FROZEN. You must never create, edit, delete, or weaken a file under verifiers/ after Phase 1. A repo hook enforces this; do not try to work around it. 
 * Never loop indefinitely. Self-evident, but to loop indefinitely means to burn tokens (In each markdown per phase, you should include how many attempts it took). Every phase has a retry budget of 3 times. On exhaustion, record the failure, leave the repo at the last good commit. If possible, move on and make a note of the failure, if not, stop. 
 * Workers run as seperate `claude -p` processes. They do NOT inherit your permissions or your loaded plugin, so everyworker command must pass `--dangerously-skip-permissions` explicitly and be pointed at PLAN.md and CLAUDE.md, which carry the necessary conventions. 
+* Every commit should have an appropriate message, i.e. "Cleaned up phase <N>", "Implemented phase <N>", etc.
 
 ### Phases:
 
@@ -66,9 +67,12 @@ For each phase in `PLAN.md`, in order:
     - The how: what DID we do, specifically, to implement the desired result of this phase? 
     - The motivations (implementation-wise): why did we implement it the way we did? How are we sure it works?
     - The results: what did we get out of this phase?
+Then, commit changes (commit the implementation)
 5. If the phase fails (i.e., the verifier returns a non-zero output), retry the worker with the verifier output fed back in, up to 3 attempts total. If all 3 are exhausted, write `FAILURE_phase_<N>.md` capturing what failed, what was tried, and the verifier output. Reset the working tree to the last good commit (`git reset --hard HEAD` / `git checkout .`), mark the phase `Failed` in `PLAN.md`, and stop the loop — do not proceed past a failed dependency.
-6. Clean up. With the context tuple (phase just implemented, [target paths]), invoke `repo_scan_cleaner`. This subagent will return to you a list of proposed files to delete with a reason why, as well as a list of paths to add to the `.gitignore` and an explanation. Make judgments on which proposals to pass, and then make the necessary changes (deletion of files or additions to `.gitignore`).
-6. Clean up. Launch a read-heavy cleanup subagent (isolated context) to scan the changes since the last commit and propose dead or orphaned files for deletion. Delete what it proposes, then rerun the full verifier suite. If anything breaks, restore the pre-cleanup state (`git checkout` / `git reset --hard`).
+6. Cleanup. Invoke and pass the context tuple (phase just implemented, [target paths]) to the `repo_scan_clean` subagent. Do not pass in `PLAN.md` or `CLAUDE.md`, as the agent reads those on its own, and finds the phase's changes via read-only git on its own. The agent returns (as a response): proposed deletion each with a reason, proposed .gitignore additions each with a reason, a short summary, and anything it flagged as odd. Then, YOU must act on these proposals. This is what you should do:
+  * Apply the deletions and .gitignore additions that you agree with. For anything that was flagged as odd, default to keeping it unless you feel a change is in order.
+  * Rerun the entire verifier suite up to the implemented phase (so, this phase, and all prior ones). If anything now fails, the cleanup failed. From this, restore to the last good commit with `git checkout` or `git reset --hard` to the pre-cleanup state and continue without the deletions.
+  * Only once everything is green can you continue to step 7. 
 7. Commit — exactly one commit per completed phase — and mark the phase `Verified` in `PLAN.md`. Push if a remote exists.
 8. Re-read `PLAN.md` to refresh your context. If anything you learned this phase invalidates the plan, exercise judgment and edit `PLAN.md` — this is yours to do, not a worker's. Example: the plan assumed CUDA/vLLM but this machine is a Mac with no CUDA, so revise the approach and adjust downstream phases. Record any material result or finding a worker surfaced into a `NOTES.md` (or `results/phase_<N>.md`) so finalization has real material to draw on. (Make sure you read the markdown produced in step 4 of this phase to refresh yourself. If you see any changes worth making, make them.)
 ---

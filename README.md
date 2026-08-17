@@ -1,51 +1,85 @@
-# An agentic builder for personal use.
-----------------
+# agentic-workflow-plugin
 
-With the advent of AI, one-time prompts can be slow when building projects. This project does remove the human aspect of building, as it allows the AI to code autonomously. You may ask what this does differently from `claude --dangerously-skip-permissions`, and I'd argue that while dangerously skip permissions is asking "can the agent act without asking?", this project is more "how do I *know* what the agent did is correct without checking myself". Slightly different. And enough of an optimization in my personal life (as I like to build lots of random things) that creating this workflow agent is worth it. 
+**An autonomous, phase-based project builder for Claude Code — built to mimic one person's development style.**
 
-## Introduction
+With the advent of AI, one-time prompts can be slow when building projects. This plugin removes the human from the build loop and lets the agent code autonomously. You may ask what this does differently from `claude --dangerously-skip-permissions`. I'd argue that where *dangerously-skip-permissions* answers *"can the agent act without asking?"*, this plugin answers *"how do I **know** what the agent did is correct without checking it myself?"* — a slightly different, and for me worthwhile, optimization.
 
-At it's core, this is a personal agent that I built for my own purposes. I have a specific way I like to build, and this workflow is meant to mimic it. It is an unsupervised, phase-based agentic workflow for building. 
+At its core this is a personal agent I built for my own purposes. I have a specific way I like to build, and this workflow mimics it: an unsupervised, phase-based agentic pipeline for building projects end-to-end from a single prompt.
 
-Core loop: **Plan -> Implement -> Verify -> Clean -> Commit -> Next**
+**Core loop:** `Plan → Implement → Verify → Clean → Commit → Next`
 
-## Phases:
+## How correctness is enforced
 
-#### Phase 1: Scaffolding
+The central idea is **frozen verifiers**. Before any implementation exists, the orchestrator writes one machine-checkable pass/fail verifier per phase into a `verifiers/` directory. A `PreToolUse` hook then blocks any edit or deletion under `verifiers/` for the rest of the run, so the implementing agent can never grade its own homework or move the passing bar (no reward hacking). A phase is "done" only when its own verifier passes **and** every earlier verifier still passes.
 
-1. Take the prompt, and analyze all dependencies and determine a logical order of work. Figure out what needs to be done before it has to be done.
-2. Write the plan to a variable `PLAN.md`. Ordered phases, what each phase delivers, and a status field per phase (something like `Pending / In-progress / Verified / Failed`).
-3. Write ALL verifiers now, one per phase (or per subphase, if it is that necessary) into a dedicated `verifiers/` directory. Each is an independent script or terminal check (RLVR-style: pass/fail, machine-checkable).
-    * Verifiers are written before any impleentation exists, by the scaffold phase. 
-    * Verifiers are frozen: a `PreToolUse` hook blocks any edit or delete under `verifiers/` for the rest of the run. This implementing agent must never be able to grade its own homework or move the A+ cutoff (to prevent reward hacking)
-4. Write a `.gitignore` now. Between each phase, and especially before every commit, the agent must know to check the state of the files and update a .gitignore. 
-5. Write or append information to a `CLAUDE.md` with project conventions. I.e., the verifier-sanctity rule, the location of `PLAN.md`, etc. 
-6. Run `git init` + initial commits and pushes. This step assumes that a github repository is connected, which should be checked.
+The filesystem and git are the agent's shared memory: every durable decision becomes a file or a commit, never something held only in context.
 
-#### Phase 2: Work-loop
+## Components
 
-1. For each phase in `PLAN.md`, the following steps should be done:
-2. Implement the phase in a fresh headless session (`claude -p`), pointed at `PLAN.md` and `CLAUDE.md`. A `PostToolUse` hook auto-runs the current phase's verifiers after every file edit so failures surface immediately in-context. 
-3. Verify. This step is only done when its verifiers pass, plus all previous verifiers (redundancy check to make sure new edits didnt kill old systems).
-4. Check for failures. Each phase will have a retry budget (for now, let's say 3 attempts). If we burn through all 3 attempts, write a `FAILURE_phase_X-Y.md` file (What failed, what was tried, verifier ouput). Leave the repo at the last good commit, never loop indefinitely.
-5. Clean up any changes made. Let a sub-agent (read-heavy, isolated context) to deep-scan the repo and propose dead scripts for deletion. Delete, then rerun the verifier suite. (Can also make it so that this sub-agent only reads recent changes between commits, as it may be redundant). If anything breaks, can restore to a previous good commit `git checkout`. 
-6. Commit any changes. One per phase. 
-7. After each phase, recheck `PLAN.md` to refresh context. Additionally, if while building we come across anything that would make us change our minds about what the plan, make a judgement call and modify `PLAN.md` if necessary. For example, if you wanted to run vLLM in the plan, but find that we are on a Mac and don't have CUDA, then fix the plan.
+This is a standard Claude Code plugin. Its pieces:
 
-#### Phase 3: Finalization
+| Path | What it is |
+| --- | --- |
+| `.claude-plugin/plugin.json` | Plugin manifest (name, version, author). |
+| `commands/build.md` | The `/build` slash command — the **orchestrator**. Holds the plan and all judgment; delegates implementation to fresh worker sessions and reads results back from disk. Never writes product code itself. |
+| `agents/verifier_builder.md` | Subagent invoked once per phase during scaffolding. Encodes acceptance criteria the orchestrator supplies into a single frozen pass/fail verifier script. An encoder, not a judge — it never decides what "correct" means. |
+| `agents/repo_scan_clean.md` | Read-only subagent invoked after a phase verifies. Diff-scoped (looks only at the phase's uncommitted changes) and proposes dead-file deletions and `.gitignore` additions back to the orchestrator. Makes zero changes itself. |
+| `agents/finalizer.md` | Subagent invoked once in Phase 3. Judges whether the project is research or engineering and writes `SUMMARY.md` and `README.md` grounded strictly in what exists on disk. |
+| `skills/notify/` | `notify` skill — pushes a phone notification via [ntfy](https://ntfy.sh) on a full success or a halting failure. `SUMMARY.md` is sent as the attachment. |
+| `hooks/` | Plugin-level hook scripts (`verifier_freeze.sh`, `auto_verify.sh`, `completion_ping.sh`) and `hooks.json`. **Work in progress / scaffolding** — currently empty; the live guardrail hooks are written by the orchestrator into each target repo's `.claude/settings.json` during Phase 1. |
 
-1. Write a `SUMMARY.md` separate from `README.md`. Highlight major results. Judge project type first: research projects get a results section (findings, numbers, plots, things that don't really live in a `README.md`). Pure engineering projects may be reduced to a couple lines of findings.
-2. Final deep scan + cleanup (like in step 2.5)
-3. With this final deep scan in mind, write a `README.md` to be displayed on the repository. Also, reconcile `.gitignore` with what exists now.
-4. A final verifier. In a fresh directory, clone the repo, install from scratch, and run the full verifier suite. 
+## Installation
 
-## Directory Structure:
+Clone the plugin and point Claude Code at it with `--plugin-dir`:
 
-## Misc.
-Bash script to run when building future projects:
+```bash
+git clone <this-repo> ~/plugins/agentic-workflow-plugin
+```
+
+Then run Claude Code with the plugin directory loaded (see usage below). The
+`/build` command is manual-invocation only (`disable-model-invocation: true`) — the
+model will not trigger it on its own.
+
+### Notify skill setup (optional)
+
+`skills/notify/SKILL.md` carries a private ntfy topic and is **git-ignored** on
+purpose — the topic name is the only secret on ntfy, so it stays untracked.
+`skills/notify/sample_SKILL.md` is the shareable template. To use notifications,
+copy the sample to `SKILL.md` and set your own unguessable topic.
+
+## Usage
+
+Invoke the builder with a description of what to build:
+
+```
+/build A RL environment for Linear Algebra problems
+```
+
+The orchestrator then runs three phases:
+
+1. **Scaffolding** — analyze the request and its dependency order; write `PLAN.md` (ordered phases, each with a `Pending / In-progress / Verified / Failed` status), all frozen verifiers under `verifiers/`, a stack-appropriate `.gitignore`, a `CLAUDE.md` of conventions, and `.claude/settings.json` with the guardrail hooks; then `git init` and commit the scaffold.
+2. **Work loop** — for each phase: mark it in-progress, implement it in a fresh headless `claude -p` worker pointed at `PLAN.md`/`CLAUDE.md`, verify against the full suite so far, write a `results/phase_<N>.md` writeup, run the cleanup subagent, and commit exactly once. Each phase has a **retry budget of 3**; on exhaustion it records `FAILURE_phase_<N>.md`, resets to the last good commit, and stops rather than looping forever.
+3. **Finalization** — write `SUMMARY.md` and `README.md`, do a final deep-scan cleanup, and run an acceptance check that clones the repo into a fresh directory, installs from scratch, and runs the entire verifier suite to prove the build reproduces from nothing.
+
+### Running it unattended
+
+The workflow is designed to run headless and autonomously. A typical invocation:
+
 ```bash
 caffeinate -i nohup claude -p "/build create an RL environment for chemistry problems" \
-  --plugin-dir ~/plugins/agentic-builder \
+  --plugin-dir ~/plugins/agentic-workflow-plugin \
   --dangerously-skip-permissions \
   --output-format stream-json --verbose > build.log 2>&1 &
 ```
+
+Workers spawned by the orchestrator run as separate `claude -p` processes; they do
+**not** inherit the orchestrator's permissions or loaded plugin, so each worker
+command passes `--dangerously-skip-permissions` explicitly and is pointed at
+`PLAN.md` and `CLAUDE.md`.
+
+> Note: `--dangerously-skip-permissions` lets the agent act without prompts. Run it
+> only on work you're comfortable executing unattended.
+
+## Author
+
+Patrick Ming

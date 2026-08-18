@@ -1,5 +1,4 @@
-# Personal notify skill — holds a private ntfy topic; keep untracked.
-# Track skills/notify/sample_SKILL.md as the shareable template instead.
+# skills/notify/README.md is a stand-in explaining how to recreate the notify skill.
 skills/notify/SKILL.md
 
 # Build / run logs (see the caffeinate command in README.md)

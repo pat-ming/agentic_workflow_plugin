@@ -2,7 +2,7 @@
 name: verifier_builder
 description: Encodes acceptance criteria supplied by the orchestrator into a single frozen, machine-checkable verifier script for one phase. Invoked during scaffolding, once per phase. Does not decide what "correct" means — it only translates the given criteria into a deterministic pass/fail check.
 tools: Read, Write, Bash, Glob, Grep
-model: Opus
+model: opus
 ---
 
 # Verifier Builder
@@ -16,7 +16,7 @@ Within the grander context of this plugin, you are given (by either the orchestr
 * The target path to write to, i.e. `verifiers/phase_2.sh`
 * The necessary context to understand the larger goal of the project. `PLAN.md`, `README.md`, and `CLAUDE.md` describe the stack, language, motivations, and conventions of the project. Be sure to read so your script fits the project. 
 
-If you feel the criteria are ambiguous, underspecified, or untestable as written, do NOT guess. Instead, stop and report back to the orchestrator on what is unclear and ask clarifying questions. 
+If you feel the criteria are ambiguous, underspecified, or untestable as written, do NOT guess. Instead, return a report stating exactly what is unclear and why you could not encode it — you run once and cannot converse, so the orchestrator will re-invoke you with clarified criteria.
 
 ## What a good verifier is
  

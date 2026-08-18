@@ -31,7 +31,7 @@ This is a standard Claude Code plugin. Its pieces:
 | `agents/repo_scan_clean.md` | Read-only subagent invoked after a phase verifies. Diff-scoped (looks only at the phase's uncommitted changes) and returns proposed dead-file deletions and `.gitignore` additions to the orchestrator. Makes zero changes itself and never proposes touching `verifiers/`. |
 | `agents/finalizer.md` | Subagent invoked once in Phase 3. Judges whether the project is research or engineering and writes the target repo's `SUMMARY.md` and `README.md`, grounded strictly in the `results/` trail and what exists on disk. Proposes `.gitignore` changes rather than applying them. |
 | `skills/notify/` | The `notify` skill — pushes a phone notification via [ntfy](https://ntfy.sh) on a full success (attaching `SUMMARY.md`) or a halting failure (attaching a short digest). `SKILL.md` is git-ignored because it carries a private ntfy topic; `skills/notify/README.md` explains how to recreate it. |
-| `hooks/hooks.json`, `hooks/completion_ping.sh` | Plugin-level `Stop` hook — the dead-man's switch. Fires when the orchestrator session ends and pings "ended unexpectedly" **unless** the notify skill already recorded a controlled ending. |
+| `hooks/hooks.json`, `hooks/completion_ping.sh` | Plugin-level `SessionEnd` hook — the dead-man's switch. Fires once when the orchestrator session terminates and pings "ended unexpectedly" **only if** a build was in flight (`.current_phase` exists) and the notify skill never recorded a controlled ending. |
 
 ### Two kinds of hooks — don't confuse them
 
@@ -57,7 +57,7 @@ Nothing in the plugin assumes where it is installed. The `/build` command is man
 
 ### Notify skill setup (optional)
 
-`skills/notify/SKILL.md` carries a private ntfy topic and is **git-ignored** on purpose — the topic name is the only secret on ntfy, so it stays untracked. On a fresh clone the skill therefore doesn't exist yet: see `skills/notify/README.md` for what it must contain, and set the same topic in `hooks/completion_ping.sh` — the crash ping and the success/failure pings must land on the same channel. Without the skill, builds still run; you just get no phone pings (and the Stop hook will report every ending as unexpected).
+`skills/notify/SKILL.md` carries a private ntfy topic and is **git-ignored** on purpose — the topic name is the only secret on ntfy, so it stays untracked. On a fresh clone the skill therefore doesn't exist yet: see `skills/notify/README.md` for what it must contain. Both the skill and `hooks/completion_ping.sh` read the topic from the `NTFY_TOPIC` environment variable, so the crash ping and the success/failure pings land on the same channel with nothing hardcoded. Without the skill (or with `NTFY_TOPIC` unset), builds still run; you just get no phone pings.
 
 ## Usage
 
@@ -105,7 +105,7 @@ In the target repo: `PLAN.md`, `CLAUDE.md`, the frozen `verifiers/`, a per-phase
 Two tiny gitignored flag files in the target repo let the stateless hook scripts and the notifier coordinate:
 
 - `.current_phase` — the number of the phase currently being implemented; the auto-verify hook reads it to pick the right verifier.
-- `.notified` — its existence means a controlled success/failure notification was already sent, so the Stop hook stays silent. Cleared at the start of every run.
+- `.notified` — its existence means a controlled success/failure notification was already sent, so the SessionEnd hook stays silent. Cleared at the start of every run.
 
 ## Notifications
 
@@ -115,7 +115,7 @@ Three pings, all to the same ntfy topic — every run ends in exactly one of the
 | --- | --- | --- |
 | ✅ Build complete | `notify` skill | Whole suite verified; `SUMMARY.md` attached. |
 | ❌ Build halted at phase N | `notify` skill | Retry budget exhausted; short digest attached, pointer to `FAILURE_phase_<N>.md`. |
-| ⚠️ Ended unexpectedly | `hooks/completion_ping.sh` (Stop hook) | The orchestrator session ended without either of the above — the dead-man's switch. |
+| ⚠️ Ended unexpectedly | `hooks/completion_ping.sh` (SessionEnd hook) | The orchestrator session terminated mid-build (`.current_phase` present) without either of the above — the dead-man's switch. |
 
 Notifications are best-effort: a failed `curl` is noted and skipped, never retried in a loop, and never treated as a build failure.
 

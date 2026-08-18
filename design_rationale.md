@@ -85,14 +85,14 @@ Both live in the **target repo**, never the plugin. The plugin is stateless tool
 A hook is two pieces — a JSON config entry (event → matcher → command) and the script it calls — not a self-contained file like an agent. Config is centralized (a `hooks` key), not one-file-per- hook. Placement follows who needs to fire it:
  
 - **`verifier_freeze` (PreToolUse) and `auto_verify` (PostToolUse)** must fire in *workers*, so they're deployed into the target repo's `.claude/` (Option A). They use `${CLAUDE_PROJECT_DIR}`.
-- **`completion_ping` (Stop)** must fire only for the *orchestrator*, once, when the whole build ends — not per worker. So it lives in the plugin's `hooks/hooks.json` (workers don't load the plugin, so they never trigger it). It uses `${CLAUDE_PLUGIN_ROOT}`.
+- **`completion_ping` (SessionEnd)** must fire only for the *orchestrator*, once, when the session actually terminates — not per worker, and not per turn (the `Stop` event fires every time the agent finishes responding, which is why it's the wrong event here). So it lives in the plugin's `hooks/hooks.json` (workers don't load the plugin, so they never trigger it) and additionally gates on `.current_phase` existing, so only a session with a build in flight can raise the alarm. It uses `${CLAUDE_PLUGIN_ROOT}`.
 That `${CLAUDE_PROJECT_DIR}` vs `${CLAUDE_PLUGIN_ROOT}` difference is the whole portability story in one line.
  
 ## Notifications and the dead-man's switch
  
 Claude Code can't natively text/email, but hooks and Bash can `curl` anything, so notification is just "run a curl at the right moment." We chose a **push service (ntfy)** over SMS/email: no carrier, no per-message cost, no phone number, one-line `curl`, reaches the phone as an app notification. (SMS via Twilio and iMessage via `osascript` were considered; iMessage scripting is fragile — TCC permission prompts, Apple breaking it across releases, and it only works on your own signed-in Mac — so it's not reliable for unattended runs.)
  
-The three endings map to three notifications: controlled success (✅, from the notify skill), controlled failure (❌, from the notify skill), and *uncontrolled death* (⚠️, from the Stop hook).The Stop hook can't tell a clean finish from a crash — both look like "session ended" — so the notify skill drops `.notified` after it fires, and the Stop hook stays silent if that marker exists. `.notified` is touched even if the `curl` failed, because it records that the ending was *controlled*, not that the push was delivered; the dead-man alert is for crashes, not missed pushes. The ntfy topic must be identical in the notify skill and `completion_ping.sh`, or the three pings split across channels.
+The three endings map to three notifications: controlled success (✅, from the notify skill), controlled failure (❌, from the notify skill), and *uncontrolled death* (⚠️, from the SessionEnd hook). The SessionEnd hook can't tell a clean finish from a crash — both look like "session ended" — so the notify skill drops `.notified` after it fires, and the hook stays silent if that marker exists. `.notified` is touched even if the `curl` failed, because it records that the ending was *controlled*, not that the push was delivered; the dead-man alert is for crashes, not missed pushes. Both the notify skill and `completion_ping.sh` read the topic from `NTFY_TOPIC`, so all three pings land on the same channel with nothing hardcoded.
  
 ## Autonomy mechanics (how it actually runs unattended)
  
@@ -121,7 +121,7 @@ This is a **command + agents + hooks** project. The auto-invoked, "Claude loads 
 - `agents/repo_scan_clean.md` — read-only per-phase cleanup; returns proposals.
 - `agents/finalizer.md` — writes SUMMARY.md/README.md from `results/`; proposes `.gitignore`.
 - `skills/notify/SKILL.md` — push notification on controlled success/failure; touches `.notified`.
-- `hooks/hooks.json` + `hooks/completion_ping.sh` — orchestrator-only Stop hook (dead-man's switch).
+- `hooks/hooks.json` + `hooks/completion_ping.sh` — orchestrator-only SessionEnd hook (dead-man's switch).
 - (deployed into the target repo at runtime) `verifier_freeze.sh`, `auto_verify.sh`, `.claude/settings.json` — the worker-facing guardrails.
 ## Open items / how to validate
  

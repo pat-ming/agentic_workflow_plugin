@@ -33,7 +33,7 @@ We provide the full structure below; follow it in order.
 #### Run-state flag files (all live in the TARGET repo, gitignored)
 These tiny files let the stateless hook scripts and the notifier coordinate. You maintain them:
 * `.current_phase` — contains just the number of the phase currently being implemented. The auto-verify hook reads it to know which verifier to run. You overwrite it at the start of every phase.
-* `.notified` — its mere existence means a success/failure notification has already been sent. The plugin's completion (Stop) hook checks it so it doesn't double-notify on a clean ending. The `notify` skill creates it when it fires; you clear any stale one at the start of a run.
+* `.notified` — its mere existence means a success/failure notification has already been sent. The plugin's completion (SessionEnd) hook checks it so it doesn't double-notify on a clean ending. The `notify` skill creates it when it fires; you clear any stale one at the start of a run.
 
 ### Phases:
 
